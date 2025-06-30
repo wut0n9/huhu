@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: huhu-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-huhu}
+      MYSQL_USER: ${MYSQL_USER:-huhu}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-huhu123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - huhu-network
+    restart: unless-stopped
+
+  # MinIO对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: huhu-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - huhu-network
+    restart: unless-stopped
+
+  # Milvus向量数据库
+  milvus:
+    image: milvusdb/milvus:latest
+    container_name: huhu-milvus
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/etcd.yaml
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    networks:
+      - huhu-network
+    restart: unless-stopped
+
+  # 后端API服务
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: huhu-backend
+    environment:
+      MYSQL_URL: mysql://${MYSQL_USER:-huhu}:${MYSQL_PASSWORD:-huhu123}@mysql:3306/${MYSQL_DATABASE:-huhu}
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEBUG: ${DEBUG:-False}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+      - milvus
+      - minio
+    networks:
+      - huhu-network
+    restart: unless-stopped
+    volumes:
+      - ../backend/logs:/app/logs
+
+  # 前端应用
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: huhu-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - huhu-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  minio_data:
+  milvus_data:
+
+networks:
+  huhu-network:
+    driver: bridge

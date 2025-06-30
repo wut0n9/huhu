@@ -1,64 +1,55 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
-from datetime import datetime
-from app.models.agent import AgentStatus, AgentType
+from typing import Dict, Any, List, Optional
+from enum import Enum
 
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+    SYSTEM = "system"
 
-class AgentBase(BaseModel):
-    """Agent基础模式"""
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    agent_type: AgentType = AgentType.CHAT
-    system_prompt: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
+class ToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: Dict[str, Any]
 
+class Message(BaseModel):
+    role: MessageRole
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
 
-class AgentCreate(AgentBase):
-    """创建Agent模式"""
-    model_config: Dict[str, Any] = Field(..., description="模型配置")
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="用户消息")
+    conversation_id: Optional[str] = Field(None, description="对话ID")
+    stream: bool = Field(False, description="是否使用流式响应")
+    mcp_servers: Optional[List[Dict[str, str]]] = Field(None, description="MCP服务器配置列表")
 
+class ChatResponse(BaseModel):
+    conversation_id: str
+    message: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    usage: Optional[Dict[str, Any]] = None
 
-class AgentUpdate(BaseModel):
-    """更新Agent模式"""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    agent_type: Optional[AgentType] = None
-    system_prompt: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-    model_config: Optional[Dict[str, Any]] = None
+class StreamChatResponse(BaseModel):
+    conversation_id: str
+    content: str
+    is_final: bool = False
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
+class MCPTool(BaseModel):
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
 
-class AgentInDB(AgentBase):
-    """数据库中的Agent模式"""
-    id: int
-    status: AgentStatus
-    user_id: int
-    model_config: Dict[str, Any]
-    total_conversations: int
-    total_tokens_used: int
-    last_activity: Optional[datetime] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
-
-class Agent(AgentInDB):
-    """Agent响应模式"""
-    pass
-
-
-class AgentStatusUpdate(BaseModel):
-    """Agent状态更新模式"""
-    status: AgentStatus
-
+class MCPToolCall(BaseModel):
+    tool_name: str
+    tool_args: Dict[str, Any]
+    server_name: str
 
 class AgentConfig(BaseModel):
-    """Agent配置模式"""
-    model_name: str = Field(..., description="模型名称")
-    temperature: float = Field(0.7, ge=0.0, le=2.0, description="温度参数")
-    max_tokens: int = Field(1000, ge=1, le=4000, description="最大token数")
-    top_p: float = Field(1.0, ge=0.0, le=1.0, description="Top-p参数")
-    frequency_penalty: float = Field(0.0, ge=-2.0, le=2.0, description="频率惩罚")
-    presence_penalty: float = Field(0.0, ge=-2.0, le=2.0, description="存在惩罚") 
+    model: str
+    temperature: float = 0.1
+    max_tool_rounds: int = 5
+    max_history: int = 10 
