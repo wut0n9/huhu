@@ -8,8 +8,8 @@ class Settings:
     MYSQL_URL: str = os.getenv("MYSQL_URL", "mysql://root:password@mysql:3306/huhu")
     
     # Milvus配置
-    MILVUS_HOST: str = os.getenv("MILVUS_HOST", "milvus")
-    MILVUS_PORT: int = int(os.getenv("MILVUS_PORT", 19530))
+    MILVUS_URI: str = os.getenv("MILVUS_URI", "http://milvus:19530")
+    MILVUS_TOKEN: str = os.getenv("MILVUS_TOKEN", "")
     
     # JWT配置
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me")

@@ -293,3 +293,5 @@ Thumbs.db
 uploads/
 *.db
 *.sqlite3 
+backend/app/.env
+backend/zilliz.txt

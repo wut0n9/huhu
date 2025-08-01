@@ -3,7 +3,8 @@ from typing import List, Dict
 from pymilvus import Collection, connections
 from app.core.config import settings
 
-connections.connect(alias="default", host=settings.MILVUS_HOST, port=settings.MILVUS_PORT)
+# 连接Milvus
+connections.connect(alias="default", uri=settings.MILVUS_URI, token=settings.MILVUS_TOKEN)
 COLLECTION_NAME = "knowledge_chunk"
 
 async def insert_vectors(vectors: List[List[float]], metadatas: List[Dict]) -> List[str]:

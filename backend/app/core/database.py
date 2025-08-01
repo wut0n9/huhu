@@ -1,6 +1,8 @@
 from tortoise import Tortoise
 from app.core.config import settings
-from loguru import logger
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 async def init_db():
     """初始化数据库"""

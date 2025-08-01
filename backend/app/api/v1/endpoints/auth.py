@@ -4,7 +4,9 @@ from app.services.user import register_user, authenticate_user, create_jwt_for_u
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.user import UserOut
-from loguru import logger
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 

@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+
+# 首先加载环境变量，必须在导入settings之前
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,23 +12,13 @@ from app.api.v1.api import router as api_v1_router
 from app.core.database import init_db, close_db
 from app.services.mcp_client import close_mcp_client
 from app.core.config import settings
-from loguru import logger
+from app.core.logging import setup_logging, get_logger
+from app.middleware.logging import LoggingMiddleware
 import sys
 
-# 配置日志
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-    level=settings.LOG_LEVEL
-)
-logger.add(
-    "logs/app.log",
-    rotation="1 day",
-    retention="30 days",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-    level=settings.LOG_LEVEL
-)
+# 初始化日志系统
+setup_logging()
+logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +41,9 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan
 )
+
+# 添加日志中间件
+app.add_middleware(LoggingMiddleware)
 
 # CORS中间件
 app.add_middleware(
@@ -73,3 +72,6 @@ def ping():
 app.include_router(api_v1_router, prefix="/api/v1")
 
 # 路由将在api目录下分模块引入
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

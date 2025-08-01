@@ -1,5 +1,6 @@
 from app.models.user import User
-from app.models.role import Role, UserRole
+from app.models.role import Role
+from app.models.user_role import UserRole
 from app.core.security import hash_password, verify_password, create_access_token
 from tortoise.exceptions import DoesNotExist
 
