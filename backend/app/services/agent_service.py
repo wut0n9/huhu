@@ -85,7 +85,7 @@ class AgentService:
         mcp_client = await self._get_mcp_client()
         return await mcp_client.list_tools()
 
-    def _get_conversation_history(self, conversation_id: str) -> List[Message]:
+    async def _get_conversation_history(self, conversation_id: str) -> List[Message]:
         """
         获取对话历史
         
@@ -99,7 +99,7 @@ class AgentService:
             self.conversations[conversation_id] = []
         return self.conversations[conversation_id]
 
-    def _add_message_to_history(self, conversation_id: str, message: Message):
+    async def _add_message_to_history(self, conversation_id: str, message: Message):
         """
         添加消息到对话历史
         
@@ -107,7 +107,7 @@ class AgentService:
             conversation_id: 对话ID
             message: 消息对象
         """
-        history = self._get_conversation_history(conversation_id)
+        history = await self._get_conversation_history(conversation_id)
         history.append(message)
         
         # 限制历史长度
@@ -115,89 +115,98 @@ class AgentService:
             history.pop(0)
 
     async def process_query(
-        self, 
-        query: str, 
+        self,
+        query: str,
         conversation_id: Optional[str] = None,
         stream: bool = False
     ) -> AsyncGenerator[StreamChatResponse, None]:
         """
         处理用户查询，支持多轮流式工具调用
-        
+
         Args:
             query: 用户查询
             conversation_id: 对话ID
             stream: 是否使用流式响应
-            
+
         Yields:
             StreamChatResponse: 流式响应
         """
-        if conversation_id is None:
-            conversation_id = str(uuid.uuid4())
+        try:
+            if conversation_id is None:
+                conversation_id = str(uuid.uuid4())
+
+            # 添加用户消息到历史
+            user_message = Message(role=MessageRole.USER, content=query)
+            await self._add_message_to_history(conversation_id, user_message)
         
-        # 添加用户消息到历史
-        user_message = Message(role=MessageRole.USER, content=query)
-        self._add_message_to_history(conversation_id, user_message)
+            # 获取对话历史
+            messages = await self._get_conversation_history(conversation_id)
+
+            # 转换为LLM格式
+            llm_messages = self._convert_messages_to_llm_format(messages)
+
+            # 获取可用工具
+            available_tools = await self._get_available_tools_for_llm()
+
+            max_tool_rounds = settings.MCP_MAX_TOOL_ROUNDS
+            final_answer = ""
         
-        # 获取对话历史
-        messages = self._get_conversation_history(conversation_id)
-        
-        # 转换为LLM格式
-        llm_messages = self._convert_messages_to_llm_format(messages)
-        
-        # 获取可用工具
-        available_tools = await self._get_available_tools_for_llm()
-        
-        max_tool_rounds = settings.MCP_MAX_TOOL_ROUNDS
-        final_answer = ""
-        
-        for round_idx in range(max_tool_rounds):
-            logger.info(f"开始第 {round_idx + 1} 轮工具调用")
-            
-            # 调用LLM
-            response = self.llm_client.chat.completions.create(
-                model=self.model,
-                messages=llm_messages,
-                tools=available_tools,
-                tool_choice="auto",
-                stream=stream,
-                temperature=settings.MCP_TEMPERATURE
-            )
-            
-            if stream:
-                # 流式处理
+            for round_idx in range(max_tool_rounds):
+                logger.info(f"开始第 {round_idx + 1} 轮工具调用")
+
+                response = self.llm_client.chat.completions.create(
+                    model=self.model,
+                    messages=llm_messages,
+                    tools=available_tools,
+                    tool_choice="auto",
+                    stream=True,  # 使用流式调用
+                    temperature=settings.MCP_TEMPERATURE
+                )
+
+                # 流式处理：收集内容和工具调用
                 collected_messages = []
                 tool_call_accumulators = {}
                 tool_call_id = None
-                
+
+                # 处理流式响应
                 for chunk in response:
-                    delta = chunk.choices[0].delta
-                    
-                    # 收集普通内容
-                    if hasattr(delta, "content") and delta.content:
-                        collected_messages.append(delta.content)
-                        yield StreamChatResponse(
-                            conversation_id=conversation_id,
-                            content=delta.content,
-                            is_final=False
-                        )
-                    
-                    # 收集工具调用
-                    if hasattr(delta, "tool_calls") and delta.tool_calls:
-                        for tool_call_delta in delta.tool_calls:
-                            tool_call_id = tool_call_delta.id if tool_call_delta.id else tool_call_id
-                            if tool_call_id not in tool_call_accumulators:
-                                tool_call_accumulators[tool_call_id] = {
-                                    "name": "",
-                                    "arguments": ""
-                                }
-                            if hasattr(tool_call_delta.function, "name") and tool_call_delta.function.name:
-                                tool_call_accumulators[tool_call_id]["name"] = tool_call_delta.function.name
-                            if hasattr(tool_call_delta.function, "arguments") and tool_call_delta.function.arguments:
-                                tool_call_accumulators[tool_call_id]["arguments"] += tool_call_delta.function.arguments
-                
-                # 执行工具调用
+                    try:
+                        delta = chunk.choices[0].delta
+
+                        # 收集普通内容
+                        if hasattr(delta, "content") and delta.content:
+                            collected_messages.append(delta.content)
+                            # 如果需要流式输出内容，可以在这里yield
+                            if stream:
+                                yield StreamChatResponse(
+                                    conversation_id=conversation_id,
+                                    content=delta.content,
+                                    is_final=False
+                                )
+
+                        # 收集工具调用
+                        if hasattr(delta, "tool_calls") and delta.tool_calls:
+                            for tool_call_delta in delta.tool_calls:
+                                tool_call_id = tool_call_delta.id if tool_call_delta.id else tool_call_id
+                                if tool_call_id not in tool_call_accumulators:
+                                    tool_call_accumulators[tool_call_id] = {
+                                        "name": "",
+                                        "arguments": ""
+                                    }
+                                if hasattr(tool_call_delta.function, "name") and tool_call_delta.function.name:
+                                    tool_call_accumulators[tool_call_id]["name"] = tool_call_delta.function.name
+                                if hasattr(tool_call_delta.function, "arguments") and tool_call_delta.function.arguments:
+                                    tool_call_accumulators[tool_call_id]["arguments"] += tool_call_delta.function.arguments
+
+                        logger.debug(f"tool_call_accumulators: {tool_call_accumulators}")
+
+                    except Exception as e:
+                        logger.error(f"处理流式响应块失败: {e}")
+                        continue
+
+                # 检查是否有工具调用
                 if tool_call_accumulators:
-                    tool_calls = []
+                    # 执行所有工具调用
                     for tool_call_id, tool_call in tool_call_accumulators.items():
                         function_name = tool_call["name"]
                         try:
@@ -205,110 +214,67 @@ class AgentService:
                         except Exception as e:
                             logger.error(f"解析工具参数失败: {tool_call['arguments']}, 错误: {e}")
                             continue
-                        
-                        # 执行工具调用
+
                         result = await self._execute_tool_call(function_name, tool_args)
-                        
-                        tool_calls.append({
-                            "id": tool_call_id,
-                            "name": function_name,
-                            "arguments": tool_args,
-                            "result": result
-                        })
-                    
-                    # 更新对话历史
-                    assistant_message = Message(
-                        role=MessageRole.ASSISTANT,
-                        content=None,
-                        tool_calls=[{
-                            "id": tool_call_id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_call["name"],
-                                "arguments": json.dumps(tool_call["arguments"], ensure_ascii=False)
-                            }
-                        } for tool_call_id, tool_call in tool_call_accumulators.items()]
-                    )
-                    self._add_message_to_history(conversation_id, assistant_message)
-                    
-                    # 添加工具响应到历史
-                    for tool_call in tool_calls:
+
+                        # 更新对话历史
+                        assistant_message = Message(
+                            role=MessageRole.ASSISTANT,
+                            content=None,
+                            tool_calls=[{
+                                "id": tool_call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": function_name,
+                                    "arguments": json.dumps(tool_args, ensure_ascii=False)
+                                }
+                            }]
+                        )
+                        await self._add_message_to_history(conversation_id, assistant_message)
+
                         tool_message = Message(
                             role=MessageRole.TOOL,
-                            name=tool_call["name"],
-                            tool_call_id=tool_call["id"],
-                            content=str(tool_call["result"])
+                            name=function_name,
+                            tool_call_id=tool_call_id,
+                            content=str(result)
                         )
-                        self._add_message_to_history(conversation_id, tool_message)
-                    
+                        await self._add_message_to_history(conversation_id, tool_message)
+
                     # 继续下一轮
-                    messages = self._get_conversation_history(conversation_id)
+                    messages = await self._get_conversation_history(conversation_id)
                     llm_messages = self._convert_messages_to_llm_format(messages)
                     continue
                 else:
-                    # 没有工具调用，返回最终答案
+                    # 没有工具调用，直接使用收集到的内容作为最终回复
                     final_answer = "".join(collected_messages)
                     yield StreamChatResponse(
                         conversation_id=conversation_id,
                         content=final_answer,
                         is_final=True
                     )
+
                     break
-            else:
-                # 非流式处理
-                response_content = response.choices[0].message.content
-                tool_calls = response.choices[0].message.tool_calls
+        
+            if not final_answer:
+                final_answer = "未能理解您的问题"
+                # 如果没有最终答案，需要输出默认回复
+                yield StreamChatResponse(
+                    conversation_id=conversation_id,
+                    content=final_answer,
+                    is_final=True
+                )
                 
-                if tool_calls:
-                    # 执行工具调用
-                    for tool_call in tool_calls:
-                        function_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
-                        result = await self._execute_tool_call(function_name, tool_args)
-                        
-                        # 更新对话历史
-                        assistant_message = Message(
-                            role=MessageRole.ASSISTANT,
-                            content=None,
-                            tool_calls=[{
-                                "id": tool_call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_call.function.name,
-                                    "arguments": tool_call.function.arguments
-                                }
-                            }]
-                        )
-                        self._add_message_to_history(conversation_id, assistant_message)
-                        
-                        tool_message = Message(
-                            role=MessageRole.TOOL,
-                            name=function_name,
-                            tool_call_id=tool_call.id,
-                            content=str(result)
-                        )
-                        self._add_message_to_history(conversation_id, tool_message)
-                    
-                    # 继续下一轮
-                    messages = self._get_conversation_history(conversation_id)
-                    llm_messages = self._convert_messages_to_llm_format(messages)
-                    continue
-                else:
-                    # 没有工具调用，返回最终答案
-                    final_answer = response_content
-                    break
-        
-        if not final_answer:
-            final_answer = "未能理解您的问题"
-        
-        # 添加助手回复到历史
-        assistant_message = Message(role=MessageRole.ASSISTANT, content=final_answer)
-        self._add_message_to_history(conversation_id, assistant_message)
-        
-        if not stream:
+
+            # 添加助手回复到历史
+            assistant_message = Message(role=MessageRole.ASSISTANT, content=final_answer)
+            await self._add_message_to_history(conversation_id, assistant_message)
+
+        except Exception as e:
+            logger.error(f"处理查询失败: {e}")
+            # 发送错误响应
             yield StreamChatResponse(
-                conversation_id=conversation_id,
-                content=final_answer,
+                conversation_id=conversation_id or str(uuid.uuid4()),
+                content=f"处理查询时出错: {str(e)}",
                 is_final=True
             )
 
@@ -407,7 +373,7 @@ class AgentService:
         
         return llm_messages
 
-    def get_conversation_history(self, conversation_id: str) -> List[Message]:
+    async def get_conversation_history(self, conversation_id: str) -> List[Message]:
         """
         获取对话历史
         
@@ -417,7 +383,7 @@ class AgentService:
         Returns:
             List[Message]: 对话历史
         """
-        return self._get_conversation_history(conversation_id)
+        return await self._get_conversation_history(conversation_id)
 
     def clear_conversation(self, conversation_id: str):
         """

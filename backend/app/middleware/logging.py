@@ -20,28 +20,36 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     记录所有HTTP请求的详细信息
     """
     
-    def __init__(self, app, skip_paths: list = None):
+    def __init__(self, app, skip_paths: list = None, streaming_paths: list = None, enabled: bool = True):
         """
         初始化日志中间件
-        
+
         Args:
             app: FastAPI应用实例
             skip_paths: 跳过记录的路径列表
+            streaming_paths: 流式响应路径列表，这些路径不会读取request body
+            enabled: 是否启用中间件（可用于开发环境禁用）
         """
         super().__init__(app)
+        self.enabled = enabled
         self.skip_paths = skip_paths or ["/ping", "/health", "/metrics"]
+        self.streaming_paths = streaming_paths or ["/api/v1/agent/chat"]
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
         处理HTTP请求并记录日志
-        
+
         Args:
             request: HTTP请求对象
             call_next: 下一个中间件或路由处理器
-            
+
         Returns:
             HTTP响应对象
         """
+        # 如果中间件被禁用，直接传递请求
+        if not self.enabled:
+            return await call_next(request)
+
         # 跳过某些路径的日志记录
         if request.url.path in self.skip_paths:
             return await call_next(request)
@@ -56,9 +64,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         client_ip = self._get_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
         
-        # 记录请求体（仅对POST/PUT/PATCH请求）
+        # 记录请求体（仅对POST/PUT/PATCH请求，且不是流式响应路径）
         request_body = None
-        if method in ["POST", "PUT", "PATCH"]:
+        is_streaming_path = any(path in request.url.path for path in self.streaming_paths)
+
+        if method in ["POST", "PUT", "PATCH"] and not is_streaming_path:
             try:
                 body = await request.body()
                 if body:
@@ -69,14 +79,25 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         request_body = self._mask_sensitive_data(request_body)
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         request_body = f"<binary data: {len(body)} bytes>"
-                
-                # 重新构造request，因为body已经被读取
-                async def receive():
-                    return {"type": "http.request", "body": body}
-                
-                request._receive = receive
+
+                # 安全地重新构造request，保持ASGI协议兼容性
+                original_receive = request._receive
+                body_sent = False
+
+                async def safe_receive():
+                    nonlocal body_sent
+                    if not body_sent:
+                        body_sent = True
+                        return {"type": "http.request", "body": body}
+                    else:
+                        # 对于后续调用，使用原始的receive
+                        return await original_receive()
+
+                request._receive = safe_receive
             except Exception as e:
                 logger.warning(f"读取请求体失败: {e}")
+        elif is_streaming_path:
+            logger.debug(f"跳过流式响应路径的请求体读取: {path}")
         
         # 记录请求开始
         logger.info(

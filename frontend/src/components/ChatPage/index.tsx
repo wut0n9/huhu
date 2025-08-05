@@ -20,7 +20,6 @@ const ChatPage: React.FC = () => {
     uploadedFiles,
     conversations,
     currentStreamingMessage,
-    streamingIndex,
     sendMessage,
     selectMCPTool,
     removeMCPTool,
@@ -110,12 +109,12 @@ const ChatPage: React.FC = () => {
                   ))}
                   
                   {/* 流式消息 */}
-                  {currentStreamingMessage && streamingIndex > 0 && (
+                  {currentStreamingMessage && (
                     <MessageItem
                       message={{
                         id: 'streaming',
                         role: 'assistant',
-                        content: currentStreamingMessage.slice(0, streamingIndex),
+                        content: currentStreamingMessage,
                         timestamp: new Date().toISOString(),
                         conversationId: conversationId || 'new',
                       }}

@@ -1,47 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Message, ChatState, MCPTool, Conversation, UploadedFile } from '@/types/chat';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { Message, ChatState, MCPTool, UploadedFile } from '@/types/chat';
 import { generateId } from '@/utils/helpers';
-
-// Mock数据
-const MOCK_CONVERSATIONS: Conversation[] = [
-  {
-    id: '1',
-    title: '关于项目架构的讨论',
-    messages: [
-      {
-        id: '1',
-        role: 'user',
-        content: '请介绍一下这个项目的整体架构',
-        timestamp: '2024-01-15T10:00:00Z',
-        conversationId: '1'
-      },
-      {
-        id: '2',
-        role: 'assistant',
-        content: '这个项目采用前后端分离的架构，前端使用React+TypeScript+Ant Design，后端使用FastAPI+Python。前端负责用户界面和交互，后端提供API接口和业务逻辑处理。',
-        timestamp: '2024-01-15T10:01:00Z',
-        conversationId: '1'
-      }
-    ],
-    createdAt: '2024-01-15T10:00:00Z',
-    updatedAt: '2024-01-15T10:01:00Z'
-  },
-  {
-    id: '2',
-    title: '数据库设计问题',
-    messages: [
-      {
-        id: '3',
-        role: 'user',
-        content: '数据库表结构应该如何设计？',
-        timestamp: '2024-01-16T14:00:00Z',
-        conversationId: '2'
-      }
-    ],
-    createdAt: '2024-01-16T14:00:00Z',
-    updatedAt: '2024-01-16T14:00:00Z'
-  }
-];
+import { chatAPI } from '@/services/chat';
 
 const useChat = () => {
   const [state, setState] = useState<ChatState>({
@@ -51,55 +11,48 @@ const useChat = () => {
     selectedMCPTools: [],
     uploadedFiles: [],
     conversations: [],
-    currentStreamingMessage: null,
-    streamingIndex: 0
+    currentStreamingMessage: null
   });
 
-  // 流式递增 useEffect
+  // 用于中断流式响应的引用
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 移除人工逐字符显示效果，直接实时显示流式内容
+
+  // 当流式消息完成时，将其添加到消息列表
   useEffect(() => {
     if (
       state.currentStreamingMessage &&
-      state.streamingIndex < state.currentStreamingMessage.length
+      !state.isLoading
     ) {
-      const timer = setTimeout(() => {
-        setState(prev => ({
-          ...prev,
-          streamingIndex: prev.streamingIndex + 1
-        }));
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-    // 流式结束，写入完整 assistant 消息
-    if (
-      state.currentStreamingMessage &&
-      state.streamingIndex === state.currentStreamingMessage.length
-    ) {
-      const assistantMessage = {
+      const assistantMessage: Message = {
         id: generateId(),
-        role: 'assistant' as const,
+        role: 'assistant',
         content: state.currentStreamingMessage,
         timestamp: new Date().toISOString(),
         conversationId: state.conversationId || 'new'
       };
+
       setState(prev => ({
         ...prev,
         messages: [...prev.messages, assistantMessage],
-        currentStreamingMessage: null,
-        streamingIndex: 0,
-        isLoading: false
+        currentStreamingMessage: null
       }));
     }
-  }, [state.currentStreamingMessage, state.streamingIndex]);
+  }, [state.currentStreamingMessage, state.isLoading, state.conversationId]);
 
   // 加载对话列表
   const loadConversations = useCallback(async () => {
-    // 模拟API调用延迟
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    setState(prev => ({
-      ...prev,
-      conversations: MOCK_CONVERSATIONS
-    }));
+    try {
+      // 目前后端没有提供对话列表接口，暂时使用空数组
+      // 可以根据需要实现本地存储的对话历史
+      setState(prev => ({
+        ...prev,
+        conversations: []
+      }));
+    } catch (error) {
+      console.error('加载对话列表失败:', error);
+    }
   }, []);
 
   // 发送消息
@@ -117,17 +70,67 @@ const useChat = () => {
     setState(prev => ({
       ...prev,
       messages: [...prev.messages, newMessage],
-      isLoading: true
+      isLoading: true,
+      currentStreamingMessage: null
     }));
 
-    // 模拟流式输出
-    const response = `这是对"${content}"的回复。我正在模拟流式响应，这个回复会逐字显示。`;
-    setState(prev => ({
-      ...prev,
-      currentStreamingMessage: response,
-      streamingIndex: 1 // 立即显示第一个字符
-    }));
-  }, [state.conversationId]);
+    try {
+      // 创建新的 AbortController
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      // 构建MCP服务器配置
+      const mcpServers = state.selectedMCPTools.map(tool => ({
+        server_name: tool.name,
+        server_url: tool.id // 假设tool.id包含服务器URL
+      }));
+
+      // 使用流式API
+      await chatAPI.sendMessageStream(
+        {
+          message: content,
+          conversation_id: state.conversationId || undefined,
+          mcp_servers: mcpServers.length > 0 ? mcpServers : undefined
+        },
+        (chunk) => {
+          // 处理流式响应块
+          console.log('收到流式数据块:', chunk);
+          setState(prev => ({
+            ...prev,
+            currentStreamingMessage: (prev.currentStreamingMessage || '') + chunk.content,
+            conversationId: chunk.conversation_id
+          }));
+        },
+        (error) => {
+          console.error('流式响应错误:', error);
+          setState(prev => ({
+            ...prev,
+            isLoading: false,
+            currentStreamingMessage: null
+          }));
+        },
+        () => {
+          // 流式响应完成
+          setState(prev => ({
+            ...prev,
+            isLoading: false
+          }));
+          // 清除 AbortController 引用
+          abortControllerRef.current = null;
+        },
+        abortController
+      );
+    } catch (error) {
+      console.error('发送消息失败:', error);
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        currentStreamingMessage: null
+      }));
+      // 清除 AbortController 引用
+      abortControllerRef.current = null;
+    }
+  }, [state.conversationId, state.selectedMCPTools]);
 
   // 选择MCP工具
   const selectMCPTool = useCallback((tool: MCPTool) => {
@@ -173,73 +176,80 @@ const useChat = () => {
   }, []);
 
   // 切换对话
-  const switchConversation = useCallback((conversationId: string) => {
-    const conversation = state.conversations.find(c => c.id === conversationId);
-    if (conversation) {
+  const switchConversation = useCallback(async (conversationId: string) => {
+    try {
       setState(prev => ({
         ...prev,
         conversationId,
-        messages: conversation.messages
+        messages: [],
+        isLoading: true
+      }));
+
+      // 获取对话历史
+      const messages = await chatAPI.getConversationHistory(conversationId);
+      setState(prev => ({
+        ...prev,
+        messages,
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('切换对话失败:', error);
+      setState(prev => ({
+        ...prev,
+        isLoading: false
       }));
     }
-  }, [state.conversations]);
+  }, []);
 
   // 清除对话
   const clearConversation = useCallback(async (conversationId: string) => {
-    setState(prev => {
-      const newConversations = prev.conversations.filter(c => c.id !== conversationId);
-      // 如果删除的是当前激活会话，重置聊天区
-      const isCurrent = prev.conversationId === conversationId;
-      return {
-        ...prev,
-        conversations: newConversations,
-        messages: isCurrent ? [] : prev.messages,
-        conversationId: isCurrent ? null : prev.conversationId,
-        selectedMCPTools: isCurrent ? [] : prev.selectedMCPTools,
-        uploadedFiles: isCurrent ? [] : prev.uploadedFiles,
-        currentStreamingMessage: isCurrent ? null : prev.currentStreamingMessage,
-        streamingIndex: isCurrent ? 0 : prev.streamingIndex
-      };
-    });
+    try {
+      await chatAPI.clearConversationHistory(conversationId);
+
+      setState(prev => {
+        const newConversations = prev.conversations.filter(c => c.id !== conversationId);
+        // 如果删除的是当前激活会话，重置聊天区
+        const isCurrent = prev.conversationId === conversationId;
+        return {
+          ...prev,
+          conversations: newConversations,
+          messages: isCurrent ? [] : prev.messages,
+          conversationId: isCurrent ? null : prev.conversationId,
+          selectedMCPTools: isCurrent ? [] : prev.selectedMCPTools,
+          uploadedFiles: isCurrent ? [] : prev.uploadedFiles,
+          currentStreamingMessage: isCurrent ? null : prev.currentStreamingMessage
+        };
+      });
+    } catch (error) {
+      console.error('清除对话失败:', error);
+    }
   }, []);
 
   // 停止流式响应
   const stopStreaming = useCallback(() => {
+    // 中断当前请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     setState(prev => ({
       ...prev,
-      currentStreamingMessage: null,
       isLoading: false
     }));
   }, []);
 
   // 新建对话
   const newConversation = useCallback(() => {
-    setState(prev => {
-      // 仅当当前聊天区有内容时归档
-      let newConversations = prev.conversations;
-      if (prev.messages.length > 0) {
-        const now = new Date();
-        const title = prev.messages[0].content.slice(0, 20) || `新会话${now.toLocaleString()}`;
-        const newConv = {
-          id: generateId(),
-          title,
-          messages: prev.messages,
-          createdAt: prev.messages[0].timestamp,
-          updatedAt: prev.messages[prev.messages.length - 1].timestamp
-        };
-        newConversations = [...prev.conversations, newConv];
-      }
-      return {
-        ...prev,
-        conversations: newConversations,
-        messages: [],
-        conversationId: generateId(),
-        selectedMCPTools: [],
-        uploadedFiles: [],
-        currentStreamingMessage: null,
-        streamingIndex: 0
-      };
-    });
+    setState(prev => ({
+      ...prev,
+      messages: [],
+      conversationId: null, // 新对话不设置ID，让后端自动生成
+      selectedMCPTools: [],
+      uploadedFiles: [],
+      currentStreamingMessage: null,
+      isLoading: false
+    }));
   }, []);
 
   return {

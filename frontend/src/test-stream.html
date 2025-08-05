@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流式响应测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .output {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        button {
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #40a9ff;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>流式响应测试页面</h1>
+    
+    <div class="test-container">
+        <h3>测试流式数据处理</h3>
+        <p>这个测试页面用于验证修复后的流式数据处理是否能够实时显示内容。</p>
+        
+        <button id="testBtn" onclick="testStreamingAPI()">开始流式测试</button>
+        <button id="stopBtn" onclick="stopStreaming()" disabled>停止流式</button>
+        
+        <div class="status" id="status">准备就绪</div>
+        
+        <h4>实时输出:</h4>
+        <div class="output" id="output">等待开始测试...</div>
+        
+        <h4>调试信息:</h4>
+        <div class="output" id="debug">调试信息将在这里显示...</div>
+    </div>
+
+    <script>
+        let abortController = null;
+        
+        async function testStreamingAPI() {
+            const testBtn = document.getElementById('testBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const status = document.getElementById('status');
+            const output = document.getElementById('output');
+            const debug = document.getElementById('debug');
+            
+            testBtn.disabled = true;
+            stopBtn.disabled = false;
+            status.textContent = '正在连接...';
+            status.className = 'status';
+            output.textContent = '';
+            debug.textContent = '';
+            
+            abortController = new AbortController();
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/v1/agent/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        message: '请给我讲一个关于编程的故事，要详细一些',
+                        stream: true
+                    }),
+                    signal: abortController.signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                status.textContent = '已连接，正在接收数据...';
+                status.className = 'status success';
+
+                const reader = response.body?.getReader();
+                if (!reader) {
+                    throw new Error('无法获取响应流');
+                }
+
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let chunkCount = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    chunkCount++;
+                    
+                    // 使用流式解码，避免不完整的UTF-8字符
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+
+                    debug.textContent += `\n[Chunk ${chunkCount}] 收到 ${value.length} 字节: ${chunk.substring(0, 100)}${chunk.length > 100 ? '...' : ''}`;
+
+                    // 按照SSE标准，使用双换行符分割消息
+                    const messages = buffer.split('\n\n');
+                    // 保留最后一个可能不完整的消息
+                    buffer = messages.pop() || '';
+
+                    for (const message of messages) {
+                        if (!message.trim()) continue;
+
+                        // 每个message已经是完整的SSE消息，直接处理
+                        const trimmedMessage = message.trim();
+                        if (trimmedMessage.startsWith('data: ')) {
+                            try {
+                                const jsonStr = trimmedMessage.slice(6).trim();
+                                if (jsonStr === '[DONE]') {
+                                    status.textContent = '流式响应完成';
+                                    status.className = 'status success';
+                                    return;
+                                }
+
+                                const data = JSON.parse(jsonStr);
+                                output.textContent += data.content || '';
+                                debug.textContent += `\n[解析成功] ${JSON.stringify(data)}`;
+
+                                if (data.is_final) {
+                                    status.textContent = '流式响应完成';
+                                    status.className = 'status success';
+                                    return;
+                                }
+                            } catch (e) {
+                                debug.textContent += `\n[解析错误] ${e.message}: ${trimmedMessage}`;
+                            }
+                        }
+                    }
+                }
+
+                // 处理缓冲区中剩余的数据
+                if (buffer.trim()) {
+                    const trimmedBuffer = buffer.trim();
+                    if (trimmedBuffer.startsWith('data: ')) {
+                        try {
+                            const jsonStr = trimmedBuffer.slice(6).trim();
+                            if (jsonStr !== '[DONE]') {
+                                const data = JSON.parse(jsonStr);
+                                output.textContent += data.content || '';
+                                debug.textContent += `\n[最后解析] ${JSON.stringify(data)}`;
+                            }
+                        } catch (e) {
+                            debug.textContent += `\n[最后解析错误] ${e.message}: ${trimmedBuffer}`;
+                        }
+                    }
+                }
+
+                status.textContent = '流式响应完成';
+                status.className = 'status success';
+
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    status.textContent = '已停止';
+                    status.className = 'status';
+                } else {
+                    status.textContent = `错误: ${error.message}`;
+                    status.className = 'status error';
+                    debug.textContent += `\n[错误] ${error.message}`;
+                }
+            } finally {
+                testBtn.disabled = false;
+                stopBtn.disabled = true;
+                abortController = null;
+            }
+        }
+        
+        function stopStreaming() {
+            if (abortController) {
+                abortController.abort();
+            }
+        }
+    </script>
+</body>
+</html>

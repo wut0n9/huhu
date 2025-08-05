@@ -24,36 +24,60 @@ async def chat(request: ChatRequest):
     """
     try:
         agent_service = await get_agent_service()
-        
+
         # 如果有MCP服务器配置，先添加
         if request.mcp_servers:
             for server_config in request.mcp_servers:
                 try:
                     await agent_service.add_mcp_server(
-                        server_config["server_name"], 
+                        server_config["server_name"],
                         server_config["server_url"]
                     )
                 except Exception as e:
                     logger.warning(f"添加MCP服务器失败: {e}")
-        
+
         async def generate_stream():
-            async for response in agent_service.process_query(
-                query=request.message,
-                conversation_id=request.conversation_id,
-                stream=True
-            ):
-                yield f"data: {json.dumps(response.model_dump(), ensure_ascii=False)}\n\n"
-        
+            try:
+                async for response in agent_service.process_query(
+                    query=request.message,
+                    conversation_id=request.conversation_id,
+                    stream=True
+                ):
+                    try:
+                        # 格式化为SSE格式
+                        data = json.dumps(response.model_dump(), ensure_ascii=False)
+                        yield f"data: {data}\n\n"
+                    except Exception as e:
+                        logger.error(f"序列化响应数据失败: {e}")
+                        # 发送错误信息
+                        error_response = {
+                            "conversation_id": request.conversation_id or "",
+                            "content": "响应处理出错",
+                            "is_final": True
+                        }
+                        yield f"data: {json.dumps(error_response, ensure_ascii=False)}\n\n"
+                        break
+
+            except Exception as e:
+                logger.error(f"流式响应生成失败: {e}")
+                # 发送错误信息
+                error_response = {
+                    "conversation_id": request.conversation_id or "",
+                    "content": f"对话处理失败: {str(e)}",
+                    "is_final": True
+                }
+                yield f"data: {json.dumps(error_response, ensure_ascii=False)}\n\n"
+
         return StreamingResponse(
             generate_stream(),
-            media_type="text/plain",
+            media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "Content-Type": "text/event-stream"
+                "X-Accel-Buffering": "no"  # 禁用nginx缓冲
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Agent对话失败: {e}")
         raise HTTPException(status_code=500, detail=f"对话失败: {str(e)}")
@@ -117,7 +141,7 @@ async def get_conversation_history(conversation_id: str):
     """
     try:
         agent_service = await get_agent_service()
-        history = agent_service.get_conversation_history(conversation_id)
+        history = await agent_service.get_conversation_history(conversation_id)
         return {"conversation_id": conversation_id, "history": history}
     except Exception as e:
         logger.error(f"获取对话历史失败: {e}")

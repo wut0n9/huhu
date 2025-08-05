@@ -48,29 +48,37 @@ export interface ChatState {
   uploadedFiles: UploadedFile[];
   conversations: Conversation[];
   currentStreamingMessage: string | null;
-  streamingIndex: number;
 }
 
 export interface ChatRequest {
   message: string;
-  conversationId?: string;
+  conversation_id?: string;
   stream?: boolean;
-  mcpServers?: Array<{
-    serverName: string;
-    serverUrl: string;
+  mcp_servers?: Array<{
+    server_name: string;
+    server_url: string;
   }>;
 }
 
 export interface ChatResponse {
-  conversationId: string;
+  conversation_id: string;
   message: string;
-  toolCalls?: any[];
-  usage?: any;
+  tool_calls?: any[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export interface StreamChatResponse {
-  conversationId: string;
+  conversation_id: string;
   content: string;
-  isFinal: boolean;
-  toolCalls?: any[];
-} 
+  is_final: boolean;
+  tool_calls?: any[];
+}
+
+export interface MCPServer {
+  server_name: string;
+  server_url: string;
+}

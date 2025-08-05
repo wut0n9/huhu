@@ -42,8 +42,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 添加日志中间件
-app.add_middleware(LoggingMiddleware)
+# 添加日志中间件，配置流式响应路径
+app.add_middleware(
+    LoggingMiddleware,
+    streaming_paths=["/api/v1/agent/chat"],  # 流式响应路径不读取request body
+    enabled=settings.DEBUG or True  # 可以根据环境配置启用/禁用
+)
 
 # CORS中间件
 app.add_middleware(

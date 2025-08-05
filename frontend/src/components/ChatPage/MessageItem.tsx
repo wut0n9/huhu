@@ -60,7 +60,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isStreaming = false 
       return (
         <Bubble
           content={message.content}
-          typing={isStreaming}
+          typing={false}  // 禁用打字机效果，直接显示服务器返回的原始片段
           placement="start"
         />
       );
