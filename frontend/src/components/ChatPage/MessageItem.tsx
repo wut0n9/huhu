@@ -1,10 +1,14 @@
 import React from 'react';
 import { Avatar, Tooltip } from 'antd';
 import { UserOutlined, RobotOutlined, ToolOutlined } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Message } from '@/types/chat';
 import { formatTime } from '@/utils/helpers';
 import './MessageItem.css';
-import { Bubble } from '@ant-design/x';
 
 interface MessageItemProps {
   message: Message;
@@ -58,17 +62,147 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isStreaming = false 
 
     if (message.role === 'assistant') {
       return (
-        <Bubble
-          content={message.content}
-          typing={false}  // 禁用打字机效果，直接显示服务器返回的原始片段
-          placement="start"
-        />
+        <div className="message-content assistant-bubble">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={{
+              code(props: any) {
+                const { node, inline, className, children, ...rest } = props;
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    style={tomorrow as any}
+                    language={match[1]}
+                    PreTag="div"
+                    {...rest}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                ) : (
+                  <code className={className} {...rest}>
+                    {children}
+                  </code>
+                );
+              },
+              // 自定义链接渲染，确保安全性
+              a({ href, children, ...props }) {
+                return (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              },
+              // 自定义表格样式
+              table({ children, ...props }) {
+                return (
+                  <div className="markdown-table-wrapper">
+                    <table {...props}>{children}</table>
+                  </div>
+                );
+              },
+              // 自定义有序列表渲染 - 完全禁用自动序号
+              ol({ children, className, ...props }: any) {
+                return (
+                  <div className={`markdown-ordered-list ${className || ''}`}>
+                    {children}
+                  </div>
+                );
+              },
+              // 自定义无序列表渲染 - 完全禁用项目符号
+              ul({ children, className, ...props }: any) {
+                return (
+                  <div className={`markdown-unordered-list ${className || ''}`}>
+                    {children}
+                  </div>
+                );
+              },
+              // 自定义列表项渲染 - 不添加任何额外标记
+              li({ children, className, ...props }: any) {
+                return (
+                  <div className={`markdown-list-item ${className || ''}`}>
+                    {children}
+                  </div>
+                );
+              }
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+          {isStreaming && <span className="loading-dots"></span>}
+        </div>
       );
     }
 
     return (
       <div className="message-content">
-        {message.content}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw]}
+          components={{
+            code(props: any) {
+              const { node, inline, className, children, ...rest } = props;
+              const match = /language-(\w+)/.exec(className || '');
+              return !inline && match ? (
+                <SyntaxHighlighter
+                  style={tomorrow as any}
+                  language={match[1]}
+                  PreTag="div"
+                  {...rest}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              ) : (
+                <code className={className} {...rest}>
+                  {children}
+                </code>
+              );
+            },
+            a({ href, children, ...props }) {
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  {...props}
+                >
+                  {children}
+                </a>
+              );
+            },
+            // 自定义有序列表渲染 - 完全禁用自动序号
+            ol({ children, className }: any) {
+              return (
+                <div className={`markdown-ordered-list ${className || ''}`}>
+                  {children}
+                </div>
+              );
+            },
+            // 自定义无序列表渲染 - 完全禁用项目符号
+            ul({ children, className }: any) {
+              return (
+                <div className={`markdown-unordered-list ${className || ''}`}>
+                  {children}
+                </div>
+              );
+            },
+            // 自定义列表项渲染 - 不添加任何额外标记
+            li({ children, className }: any) {
+              return (
+                <div className={`markdown-list-item ${className || ''}`}>
+                  {children}
+                </div>
+              );
+            }
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
         {isStreaming && <span className="loading-dots"></span>}
       </div>
     );

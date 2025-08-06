@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Button, Modal, List, Tag, Space, Tooltip, message } from 'antd';
-import { ToolOutlined, CheckOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Button, Modal, List, Tag, Space, Tooltip, message, Popconfirm } from 'antd';
+import { ToolOutlined, CheckOutlined, PlusOutlined, EditOutlined, DeleteOutlined, GlobalOutlined } from '@ant-design/icons';
 import { MCPTool } from '@/types/chat';
+import AddRemoteMCPTool from './AddRemoteMCPTool';
 
 interface MCPToolSelectorProps {
   onToolSelect: (tool: MCPTool) => void;
@@ -15,6 +16,67 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
   selectedTools,
 }) => {
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isAddRemoteVisible, setIsAddRemoteVisible] = useState(false);
+  const [editingTool, setEditingTool] = useState<MCPTool | null>(null);
+  const [remoteTools, setRemoteTools] = useState<MCPTool[]>([]);
+
+  // 本地存储键名
+  const REMOTE_TOOLS_STORAGE_KEY = 'mcp_remote_tools';
+
+  // 从本地存储加载远程工具
+  useEffect(() => {
+    const savedTools = localStorage.getItem(REMOTE_TOOLS_STORAGE_KEY);
+    if (savedTools) {
+      try {
+        setRemoteTools(JSON.parse(savedTools));
+      } catch (error) {
+        console.error('加载远程工具失败:', error);
+      }
+    }
+  }, []);
+
+  // 保存远程工具到本地存储
+  const saveRemoteToolsToStorage = (tools: MCPTool[]) => {
+    localStorage.setItem(REMOTE_TOOLS_STORAGE_KEY, JSON.stringify(tools));
+  };
+
+  // 添加或更新远程工具
+  const handleAddRemoteTool = (tool: MCPTool) => {
+    setRemoteTools(prev => {
+      const existingIndex = prev.findIndex(t => t.id === tool.id);
+      let newTools;
+      if (existingIndex >= 0) {
+        // 更新现有工具
+        newTools = [...prev];
+        newTools[existingIndex] = tool;
+      } else {
+        // 添加新工具
+        newTools = [...prev, tool];
+      }
+      saveRemoteToolsToStorage(newTools);
+      return newTools;
+    });
+    setEditingTool(null);
+  };
+
+  // 删除远程工具
+  const handleDeleteRemoteTool = (toolId: string) => {
+    setRemoteTools(prev => {
+      const newTools = prev.filter(tool => tool.id !== toolId);
+      saveRemoteToolsToStorage(newTools);
+      return newTools;
+    });
+    // 如果删除的工具已被选择，也要从选择列表中移除
+    if (selectedTools.some(tool => tool.id === toolId)) {
+      onToolRemove(toolId);
+    }
+  };
+
+  // 编辑远程工具
+  const handleEditRemoteTool = (tool: MCPTool) => {
+    setEditingTool(tool);
+    setIsAddRemoteVisible(true);
+  };
 
   // Mock MCP工具数据
   const availableTools: MCPTool[] = [
@@ -70,8 +132,11 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
     message.success(`已选择工具: ${tool.name}`);
   };
 
+  // 合并本地工具和远程工具
+  const allTools = [...availableTools, ...remoteTools];
+
   // 按分类分组工具
-  const toolsByCategory = availableTools.reduce((acc, tool) => {
+  const toolsByCategory = allTools.reduce((acc, tool) => {
     if (!acc[tool.category]) {
       acc[tool.category] = [];
     }
@@ -84,7 +149,12 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
     data: '数据查询',
     code: '代码生成',
     web: '网络搜索',
-    math: '数学计算'
+    math: '数学计算',
+    remote: '远程工具',
+    api: 'API服务',
+    ai: 'AI服务',
+    utility: '实用工具',
+    custom: '自定义'
   };
 
   return (
@@ -103,11 +173,25 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
       </Tooltip>
 
       <Modal
-        title="选择MCP工具"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>选择MCP工具</span>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              size="small"
+              onClick={() => setIsAddRemoteVisible(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <GlobalOutlined />
+              添加远程工具
+            </Button>
+          </div>
+        }
         open={isModalVisible}
         onCancel={() => setIsModalVisible(false)}
         footer={null}
-        width={600}
+        width={700}
       >
         <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
           {Object.entries(toolsByCategory).map(([category, tools]) => (
@@ -132,10 +216,42 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
                       border: '1px solid #f0f0f0',
                       borderRadius: '6px',
                       marginBottom: '8px',
-                      cursor: 'pointer',
                       backgroundColor: isToolSelected(tool.id) ? '#f6ffed' : '#fff',
                       borderColor: isToolSelected(tool.id) ? '#b7eb8f' : '#f0f0f0'
                     }}
+                    actions={tool.isRemote ? [
+                      <Tooltip title="编辑工具" key="edit">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditRemoteTool(tool);
+                          }}
+                        />
+                      </Tooltip>,
+                      <Tooltip title="删除工具" key="delete">
+                        <Popconfirm
+                          title="确认删除"
+                          description="确定要删除这个远程工具吗？"
+                          onConfirm={(e) => {
+                            e?.stopPropagation();
+                            handleDeleteRemoteTool(tool.id);
+                          }}
+                          okText="确定"
+                          cancelText="取消"
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            danger
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </Popconfirm>
+                      </Tooltip>
+                    ] : undefined}
                     onClick={() => handleToolSelect(tool)}
                   >
                     <List.Item.Meta
@@ -159,7 +275,14 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
                           alignItems: 'center',
                           justifyContent: 'space-between'
                         }}>
-                          <span style={{ fontWeight: 500 }}>{tool.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 500 }}>{tool.name}</span>
+                            {tool.isRemote && (
+                              <Tag color="blue" icon={<GlobalOutlined />} style={{ fontSize: '11px' }}>
+                                远程
+                              </Tag>
+                            )}
+                          </div>
                           {isToolSelected(tool.id) && (
                             <CheckOutlined style={{ color: '#52c41a' }} />
                           )}
@@ -199,8 +322,18 @@ const MCPToolSelector: React.FC<MCPToolSelectorProps> = ({
           </div>
         )}
       </Modal>
+
+      <AddRemoteMCPTool
+        visible={isAddRemoteVisible}
+        onCancel={() => {
+          setIsAddRemoteVisible(false);
+          setEditingTool(null);
+        }}
+        onAdd={handleAddRemoteTool}
+        editingTool={editingTool}
+      />
     </>
   );
 };
 
-export default MCPToolSelector; 
+export default MCPToolSelector;

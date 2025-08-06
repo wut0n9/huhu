@@ -25,7 +25,7 @@
 }
 
 .message-content {
-  padding: 12px 16px;
+  padding: 2px 16px;
   border-radius: 12px;
   word-wrap: break-word;
   line-height: 1.5;
@@ -44,6 +44,15 @@
   color: #333333;
   border-bottom-left-radius: 4px;
   text-align: left;
+}
+
+.assistant-bubble {
+  background: #f5f5f5;
+  color: #333333;
+  border-bottom-left-radius: 4px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .message-item.tool .message-content {
@@ -122,4 +131,180 @@
 .message-item.assistant .ant-bubble-content,
 .message-item.assistant .ant-bubble-content-filled {
   text-align: left;
-} 
+}
+
+/* Markdown 样式 */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.message-content h1 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 8px;
+}
+
+.message-content h2 {
+  font-size: 1.25em;
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 6px;
+}
+
+.message-content h3 {
+  font-size: 1.1em;
+}
+
+.message-content p {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 0px 0;
+  padding-left: 20px;
+}
+
+.message-content li {
+  margin: 0px 0;
+  line-height: 1.5;
+}
+
+/* 简化的列表样式 - 完全按照原始内容渲染 */
+.markdown-ordered-list,
+.markdown-unordered-list {
+  margin: 0px 0;
+  padding: 0;
+}
+
+.markdown-list-item {
+  margin: 0px 0;
+  padding: 0;
+  display: block;
+}
+
+.message-content blockquote {
+  margin: 8px 0;
+  padding: 8px 16px;
+  border-left: 4px solid #dfe2e5;
+  background-color: #f6f8fa;
+  color: #6a737d;
+}
+
+.message-content code {
+  background-color: rgba(27, 31, 35, 0.05);
+  border-radius: 3px;
+  font-size: 85%;
+  margin: 0;
+  padding: 0.2em 0.4em;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+}
+
+.message-content pre {
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  font-size: 85%;
+  line-height: 1.45;
+  overflow: auto;
+  padding: 16px;
+  margin: 0px 0;
+}
+
+.message-content pre code {
+  background-color: transparent;
+  border: 0;
+  display: inline;
+  line-height: inherit;
+  margin: 0;
+  max-width: auto;
+  overflow: visible;
+  padding: 0;
+  word-wrap: normal;
+}
+
+.message-content a {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+.message-content a:hover {
+  text-decoration: underline;
+}
+
+.message-content hr {
+  background-color: #e1e4e8;
+  border: 0;
+  height: 1px;
+  margin: 16px 0;
+}
+
+/* 表格样式 */
+.markdown-table-wrapper {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.message-content table th,
+.message-content table td {
+  border: 1px solid #dfe2e5;
+  padding: 6px 13px;
+  text-align: left;
+}
+
+.message-content table th {
+  background-color: #f6f8fa;
+  font-weight: 600;
+}
+
+.message-content table tr:nth-child(2n) {
+  background-color: #f6f8fa;
+}
+
+/* 代码高亮容器样式 */
+.message-content .react-syntax-highlighter-line-number {
+  color: #999 !important;
+}
+
+.message-content pre[class*="language-"] {
+  margin: 8px 0;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+/* 确保在assistant消息中的markdown样式正确 */
+.assistant-bubble h1,
+.assistant-bubble h2,
+.assistant-bubble h3,
+.assistant-bubble h4,
+.assistant-bubble h5,
+.assistant-bubble h6,
+.assistant-bubble p,
+.assistant-bubble ul,
+.assistant-bubble ol,
+.assistant-bubble blockquote,
+.assistant-bubble pre,
+.assistant-bubble table {
+  color: inherit;
+}
+
+.assistant-bubble code {
+  background-color: rgba(27, 31, 35, 0.1);
+}
+
+.assistant-bubble pre {
+  background-color: rgba(27, 31, 35, 0.05);
+}

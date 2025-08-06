@@ -32,6 +32,8 @@ export interface MCPTool {
   description: string;
   icon: string;
   category: string;
+  url?: string; // 远程MCP工具的URL
+  isRemote?: boolean; // 标识是否为远程工具
 }
 
 export interface UploadedFile {

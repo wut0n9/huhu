@@ -57,7 +57,6 @@ export const chatAPI = {
       }
 
       const decoder = new TextDecoder();
-      let buffer = ''; // 用于累积不完整的数据
 
       while (true) {
         const { done, value } = await reader.read();
@@ -65,13 +64,9 @@ export const chatAPI = {
 
         // 使用流式解码，避免不完整的UTF-8字符
         const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-
         // 按照SSE标准，使用双换行符分割消息
-        const messages = buffer.split('\n\n');
+        const messages = chunk.split('\n\n');
         console.log("message:", messages)
-        // 保留最后一个可能不完整的消息
-        buffer = messages.pop() || '';
 
         for (const message of messages) {
           if (!message.trim()) continue;
@@ -97,23 +92,6 @@ export const chatAPI = {
             } catch (e) {
               console.error('解析流式响应失败:', e, '原始数据:', trimmedMessage);
             }
-          }
-        }
-      }
-
-      // 处理缓冲区中剩余的数据
-      if (buffer.trim()) {
-        const trimmedBuffer = buffer.trim();
-        if (trimmedBuffer.startsWith('data: ')) {
-          try {
-            const jsonStr = trimmedBuffer.slice(6).trim();
-            if (jsonStr !== '[DONE]') {
-              const data = JSON.parse(jsonStr);
-              console.log('成功解析最后的流式数据:', data);
-              onChunk(data);
-            }
-          } catch (e) {
-            console.error('解析最后的流式响应失败:', e, '原始数据:', trimmedBuffer);
           }
         }
       }
